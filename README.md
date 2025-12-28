@@ -1,73 +1,149 @@
-# React + TypeScript + Vite
+# WingMan AdsPower Test App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React test application for AdsPower browser automation with WingMan backend integration.
 
-Currently, two official plugins are available:
+## Prerequisites
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. **AdsPower** installed and running on `localhost:50325`
+2. **Node.js** v18+ installed
+3. **WingMan backend** running (locally or on Digital Ocean)
 
-## React Compiler
+## Setup Instructions
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. Clone the repository
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+git clone https://github.com/dueka/wingman-react-test.git
+cd wingman-react-test
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 2. Install dependencies
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
+
+### 3. Configure the app
+
+Edit `src/AdsPowerTest.tsx` and update these constants:
+
+```typescript
+const ADSPOWER_API_URL = 'http://localhost:50325'; // AdsPower API (local)
+const BACKEND_API_URL = 'http://localhost:3000/api/v1'; // Change to your backend URL
+const AUTH_TOKEN = '4c17d070-cae7-4fe7-abee-1429e1fa6d44'; // Your auth token
+const MODEL_ID = '4b1178e1-1749-4ebf-ba28-a989d6308753'; // Emma Wilson
+```
+
+**For production backend:**
+- Change `BACKEND_API_URL` to `http://157.245.43.188:3100/api/v1`
+- Update `AUTH_TOKEN` with your production token
+
+### 4. Start the dev server
+
+```bash
+npm run dev
+```
+
+The app will open at `http://localhost:5173`
+
+## How It Works
+
+This app demonstrates **client-side AdsPower automation**:
+
+1. **Frontend calls AdsPower API directly** (localhost:50325)
+2. **Backend only provides model data** (credentials, settings)
+3. **AdsPower browser runs on user's machine** (where the React app runs)
+
+### Architecture
+
+```
+React App (localhost:5173)
+  ↓
+  ├── Fetch model data → Backend API (localhost:3000 or DO)
+  └── Control browser → AdsPower API (localhost:50325)
+```
+
+This solves the Digital Ocean deployment issue where the backend can't reach AdsPower on localhost.
+
+## Usage
+
+1. **Page loads** → Automatically fetches Emma Wilson's data
+2. **Credentials displayed** → Snapchat username/password shown in yellow box
+3. **Click "Create Profile"** → Creates AdsPower profile (or reuses existing)
+4. **Click "Start Browser"** → Opens AdsPower browser window
+5. **Manual login** → Navigate to https://web.snapchat.com and log in with displayed credentials
+6. **AdsPower saves session** → Future logins automatic
+7. **Click "Stop Browser"** → Closes browser when done
+
+## Files
+
+- **`src/AdsPowerTest.tsx`** - Main React component
+- **`test-adspower-automation.js`** - Node.js test script (replicates backend behavior)
+
+## Testing the Node.js Script
+
+The `test-adspower-automation.js` file shows exactly what the backend does:
+
+```bash
+node test-adspower-automation.js
+```
+
+This script:
+1. Fetches model data from backend
+2. Extracts Snapchat credentials
+3. Creates/reuses AdsPower profile
+4. Starts browser via AdsPower API
+5. Connects Puppeteer and navigates to Snapchat
+6. Displays credentials for manual login
+
+## Troubleshooting
+
+### AdsPower not responding
+
+```bash
+# Check if AdsPower is running
+curl "http://localhost:50325/api/v1/status"
+```
+
+Should return:
+```json
+{"code":0,"msg":"success","data":{...}}
+```
+
+### CORS errors
+
+Make sure your backend has `http://localhost:5173` in allowed origins.
+
+### Extension not loading (Windows vs Mac issue)
+
+The extension should auto-load when using the backend's Puppeteer integration. If testing shows Mac vs Windows differences:
+
+1. Manually install extension in AdsPower UI
+2. Check AdsPower extension settings for the profile
+3. Verify extension path is correct for your OS
+
+## Backend Integration (For Reference)
+
+The backend automation service (`/api/v1/automation/start`) won't work on Digital Ocean because:
+- Backend is on DO server
+- AdsPower runs on user's local machine (localhost:50325)
+- Backend can't reach user's localhost
+
+**Solution:** This React app calls AdsPower directly from the client.
+
+## Model Data Format
+
+```typescript
+{
+  id: "4b1178e1-1749-4ebf-ba28-a989d6308753",
+  name: "Emma Wilson",
+  snapchat_username: "winning2much",
+  snapchat_password: "dymjiw-kiwja2-cugsEh",
+  ads_power_profile_id: "k18b62yu", // Created on first run
+  // ... other fields
+}
+```
+
+## License
+
+Private - WingMan Project
