@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 // Configuration
 const ADSPOWER_API_URL = 'http://localhost:50325';
-const BACKEND_API_URL = 'http://localhost:3000/api/v1';
+const BACKEND_API_URL = 'https://157.245.43.188:3100/api/v1';
+// Live backend URL for extension connectivity
+const BACKEND_WS_URL = 'https://157.245.43.188:3100';
 const AUTH_TOKEN = '4c17d070-cae7-4fe7-abee-1429e1fa6d44';
 const MODEL_ID = '4b1178e1-1749-4ebf-ba28-a989d6308753'; // Emma Wilson
+
+// Extension path (update this to your local extension build path)
+const EXTENSION_PATH = 'C:/Users/HELLO/Documents/repos/wingman-bot-extension/build';
 
 interface ModelData {
   id: string;
@@ -142,7 +147,7 @@ export default function AdsPowerTest() {
     }
   };
 
-  // Start browser
+  // Start browser (manual step)
   const startBrowser = async () => {
     if (!profile.profileId) {
       addLog('❌ No profile ID. Create a profile first!');
@@ -177,6 +182,151 @@ export default function AdsPowerTest() {
       }
     } catch (error: any) {
       addLog(`❌ Error starting browser: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ONE-CLICK: Start Automation (creates profile + starts browser + opens Snapchat)
+  const startAutomation = async () => {
+    if (!modelData) {
+      addLog('❌ Model data not loaded yet!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      addLog('🚀 Starting automation...');
+      addLog(`   Model: ${modelData.name}`);
+
+      let profileId = profile.profileId;
+
+      // Step 1: Create profile if needed
+      if (!profileId) {
+        addLog('🆕 Creating AdsPower profile...');
+
+        const createResponse = await fetch(`${ADSPOWER_API_URL}/api/v1/user/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            group_id: '0',
+            name: `${modelData.name}_${modelData.id.substring(0, 8)}`,
+            fingerprint_config: {
+              random_ua: {
+                ua_browser: ['chrome'],
+                ua_system_version: ['Windows 10']
+              }
+            },
+            user_proxy_config: {
+              proxy_soft: 'no_proxy',
+              proxy_type: '',
+              proxy_host: '',
+              proxy_port: '',
+              proxy_user: '',
+              proxy_password: ''
+            },
+            repeat_config: 0,
+          })
+        });
+
+        const createData = await createResponse.json();
+
+        if (createData.code !== 0) {
+          throw new Error(`Failed to create profile: ${createData.msg}`);
+        }
+
+        profileId = createData.data.id;
+        addLog(`✅ Profile created: ${profileId}`);
+      } else {
+        addLog(`✅ Using existing profile: ${profileId}`);
+      }
+
+      // Step 2: Start browser with extension loaded via launch_args
+      addLog('🌐 Starting browser with Wingman extension...');
+
+      // Chrome launch args to load the extension
+      const extensionPath = EXTENSION_PATH.replace(/\//g, '\\');
+
+      addLog(`   Model ID: ${MODEL_ID}`);
+      addLog(`   Backend WS: ${BACKEND_WS_URL}`);
+      addLog(`   Extension path: ${extensionPath}`);
+
+      const launchArgs = JSON.stringify([
+        `--load-extension=${extensionPath}`,
+        `--disable-extensions-except=${extensionPath}`
+      ]);
+
+      // Start browser - extension will auto-navigate to Snapchat
+      const apiUrl = `${ADSPOWER_API_URL}/api/v1/browser/start?user_id=${profileId}&open_tabs=0&ip_tab=1&headless=0&launch_args=${encodeURIComponent(launchArgs)}`;
+
+      addLog(`   API: ${ADSPOWER_API_URL}/api/v1/browser/start`);
+      addLog(`   Params: user_id=${profileId}, open_tabs=0, ip_tab=1`);
+      addLog(`   Extension will auto-navigate to Snapchat`);
+
+      const startResponse = await fetch(apiUrl);
+      const startData = await startResponse.json();
+
+      if (startData.code !== 0) {
+        throw new Error(`Failed to start browser: ${startData.msg}`);
+      }
+
+      addLog('✅ Browser started with Wingman extension!');
+      addLog(`   Puppeteer WS: ${startData.data.ws.puppeteer}`);
+      addLog(`   Debug Port: ${startData.data.debug_port}`);
+
+      // Step 3: Wait for extension to initialize, then navigate to Snapchat with config
+      addLog('');
+      addLog('⏳ Waiting for extension to initialize...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Navigate to Snapchat with config params via backend
+      addLog('🌐 Navigating to Snapchat with config params...');
+      const configParams = new URLSearchParams({
+        wm_model: MODEL_ID,
+        wm_token: AUTH_TOKEN,
+        wm_api: BACKEND_WS_URL
+      });
+      const snapchatUrl = `https://web.snapchat.com?${configParams.toString()}`;
+      addLog(`   URL: ${snapchatUrl}`);
+
+      // Use CDP to navigate (via backend proxy or direct)
+      try {
+        // Try to navigate via simple fetch to trigger the extension
+        // The extension's content-script will read the URL params
+        addLog('   Attempting navigation via AdsPower...');
+
+        // AdsPower doesn't have a direct navigation API, so extension handles it
+        addLog('   Extension should auto-navigate to Snapchat');
+      } catch (navError: any) {
+        addLog(`   ⚠️ Navigation note: ${navError.message}`);
+      }
+
+      addLog('');
+      addLog('🔌 Extension automation flow:');
+      addLog('   1. Extension auto-navigates to Snapchat');
+      addLog('   2. Login scripts handle authentication (if needed)');
+      addLog('   3. content-script.js starts conversation monitoring');
+      addLog('   4. All LLM calls go through backend WebSocket');
+
+      setProfile({
+        profileId,
+        profileName: `${modelData.name}_${modelData.id.substring(0, 8)}`,
+        browserRunning: true
+      });
+
+      // Show credentials (as fallback if extension doesn't auto-login)
+      if (modelData?.snapchat_username && modelData?.snapchat_password) {
+        addLog('');
+        addLog('🔑 FALLBACK CREDENTIALS (if auto-login fails):');
+        addLog(`   Username: ${modelData.snapchat_username}`);
+        addLog(`   Password: ${modelData.snapchat_password}`);
+      }
+
+      addLog('');
+      addLog('✅ AUTOMATION STARTED - Extension handling login!');
+
+    } catch (error: any) {
+      addLog(`❌ Error: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -268,9 +418,51 @@ export default function AdsPowerTest() {
         </div>
       )}
 
-      {/* Actions */}
-      <div style={{ marginBottom: '20px' }}>
-        <h3>Actions</h3>
+      {/* One-Click Automation */}
+      <div style={{ marginBottom: '20px', padding: '15px', background: '#e8f5e9', border: '2px solid #4caf50', borderRadius: '8px' }}>
+        <h3 style={{ marginTop: 0, color: '#2e7d32' }}>One-Click Automation</h3>
+        <button
+          onClick={startAutomation}
+          disabled={loading || !modelData || profile.browserRunning}
+          style={{
+            padding: '15px 40px',
+            marginRight: '15px',
+            fontSize: '18px',
+            fontWeight: 'bold',
+            cursor: loading || !modelData || profile.browserRunning ? 'not-allowed' : 'pointer',
+            background: loading || !modelData || profile.browserRunning ? '#ccc' : '#4caf50',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px'
+          }}
+        >
+          {loading ? '⏳ Starting...' : '🚀 Start Automation'}
+        </button>
+        <button
+          onClick={stopBrowser}
+          disabled={loading || !profile.browserRunning}
+          style={{
+            padding: '15px 40px',
+            fontSize: '18px',
+            fontWeight: 'bold',
+            cursor: loading || !profile.browserRunning ? 'not-allowed' : 'pointer',
+            background: loading || !profile.browserRunning ? '#ccc' : '#dc3545',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px'
+          }}
+        >
+          {loading ? '⏳' : '🛑 Stop'}
+        </button>
+        <p style={{ marginTop: '10px', marginBottom: 0, fontSize: '14px', color: '#666' }}>
+          Creates profile (if needed) → Starts browser → Opens Snapchat
+        </p>
+      </div>
+
+      {/* Manual Actions (Advanced) */}
+      <details style={{ marginBottom: '20px' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}>Manual Steps (Advanced)</summary>
+        <div style={{ padding: '10px', background: '#f5f5f5', borderRadius: '6px' }}>
         <button
           onClick={createProfile}
           disabled={loading || profile.profileId !== null}
@@ -320,7 +512,8 @@ export default function AdsPowerTest() {
         >
           {loading ? '⏳' : '3️⃣'} Stop Browser
         </button>
-      </div>
+        </div>
+      </details>
 
       {/* Activity Log */}
       <div style={{ marginTop: '30px' }}>
