@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 // Default configuration
-const DEFAULT_BACKEND_URL = 'http://157.245.43.188:3100/api/v1';
+const DEFAULT_BACKEND_URL = 'https://157.245.43.188:3100/api/v1'; // Use HTTPS for production
 const DEFAULT_ADSPOWER_URL = 'http://localhost:50325';
 
 interface ModelData {
