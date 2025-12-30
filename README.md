@@ -184,7 +184,21 @@ Backend URL: http://localhost:3000/api/v1
 Backend URL: http://157.245.43.188:3100/api/v1
 ```
 
-The app defaults to production. Change the Backend URL in configuration section if testing locally.
+The app defaults to production.
+
+### ⚠️ Important: HTTPS Deployment Limitation
+
+**This app currently only works when run locally** due to Mixed Content restrictions:
+
+- **Vercel/HTTPS hosting** → Cannot make HTTP requests to backend (browser blocks)
+- **Local development** → Works fine with HTTP backend
+
+**To deploy to Vercel/production, the backend needs:**
+1. A domain name (e.g., `api.wingman.com`)
+2. SSL certificate configured
+3. Update `DEFAULT_BACKEND_URL` to use `https://api.wingman.com/api/v1`
+
+**Current workaround:** Run the app locally with `npm run dev` instead of using Vercel.
 
 ## Security Notes
 
