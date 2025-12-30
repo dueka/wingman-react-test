@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
 // Default configuration
-// Note: Use HTTP for local development. For Vercel/production, backend needs HTTPS with domain.
 const DEFAULT_BACKEND_URL = 'http://157.245.43.188:3100/api/v1';
 const DEFAULT_ADSPOWER_URL = 'http://localhost:50325';
 
@@ -12,12 +11,6 @@ interface ModelData {
   snapchat_password?: string;
   ads_power_profile_id?: string;
   ads_power_browser_status?: string;
-  automation_enabled?: boolean;
-  active_tabs?: Array<{
-    platform: string;
-    url: string;
-    status: string;
-  }>;
 }
 
 interface Config {
@@ -38,114 +31,120 @@ function ModelCard({ model, config, onLog }: ModelCardProps) {
   const [status, setStatus] = useState({
     profileId: model.ads_power_profile_id || null,
     browserRunning: model.ads_power_browser_status === 'running',
-    automationEnabled: model.automation_enabled || false,
   });
 
+  // ONE-CLICK: Start Automation (creates profile + starts browser)
   const startAutomation = async () => {
     setLoading(true);
     try {
       onLog(`🚀 Starting automation for ${model.name}...`);
 
-      const response = await fetch(`${config.backendUrl}/automation/start`, {
-        method: 'POST',
-        headers: {
-          'Authorization': config.authToken,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model_id: model.id,
-          platforms: ['snapchat'],
-        }),
-      });
+      let profileId = status.profileId;
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || response.statusText);
+      // Step 1: Create profile if needed
+      if (!profileId) {
+        onLog(`🆕 Creating AdsPower profile...`);
+
+        const createResponse = await fetch(`${config.adsPowerUrl}/api/v1/user/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            group_id: '0',
+            name: `${model.name}_${model.id.substring(0, 8)}`,
+            fingerprint_config: {
+              random_ua: {
+                ua_browser: ['chrome'],
+                ua_system_version: ['Windows 10']
+              }
+            },
+            user_proxy_config: {
+              proxy_soft: 'no_proxy',
+              proxy_type: '',
+              proxy_host: '',
+              proxy_port: '',
+              proxy_user: '',
+              proxy_password: ''
+            },
+            repeat_config: 0,
+          })
+        });
+
+        const createData = await createResponse.json();
+
+        if (createData.code !== 0) {
+          throw new Error(`Failed to create profile: ${createData.msg}`);
+        }
+
+        profileId = createData.data.id;
+        onLog(`✅ Profile created: ${profileId}`);
+      } else {
+        onLog(`✅ Using existing profile: ${profileId}`);
       }
 
-      const result = await response.json();
-      onLog(`✅ Automation started for ${model.name}`);
-      onLog(`   Profile ID: ${result.data?.profile_id || 'N/A'}`);
-      onLog(`   Browser: ${result.data?.browser_status || 'N/A'}`);
+      // Step 2: Start browser
+      onLog(`🌐 Starting browser...`);
 
-      setStatus({
-        profileId: result.data?.profile_id || status.profileId,
-        browserRunning: true,
-        automationEnabled: true,
-      });
+      const startResponse = await fetch(
+        `${config.adsPowerUrl}/api/v1/browser/start?user_id=${profileId}&open_tabs=0&ip_tab=1&headless=0`
+      );
+
+      const startData = await startResponse.json();
+
+      if (startData.code !== 0) {
+        throw new Error(`Failed to start browser: ${startData.msg}`);
+      }
+
+      onLog(`✅ Browser started for ${model.name}!`);
+      onLog(`   WebSocket: ${startData.data.ws.puppeteer}`);
+
+      setStatus({ profileId, browserRunning: true });
+
+      // Show credentials
+      if (model.snapchat_username && model.snapchat_password) {
+        onLog('');
+        onLog(`🔑 Use these credentials to login:`);
+        onLog(`   Username: ${model.snapchat_username}`);
+        onLog(`   Password: ${model.snapchat_password}`);
+        onLog(`   → Navigate to https://web.snapchat.com and log in`);
+      }
+
+      onLog('');
+      onLog(`✅ AUTOMATION STARTED for ${model.name}!`);
+
     } catch (error: any) {
-      onLog(`❌ Error starting automation for ${model.name}: ${error.message}`);
+      onLog(`❌ Error: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const stopAutomation = async () => {
+  // Stop browser
+  const stopBrowser = async () => {
+    if (!status.profileId) {
+      onLog(`❌ No profile for ${model.name}!`);
+      return;
+    }
+
     setLoading(true);
     try {
-      onLog(`🛑 Stopping automation for ${model.name}...`);
+      onLog(`🛑 Stopping browser for ${model.name}...`);
 
-      const response = await fetch(`${config.backendUrl}/automation/stop`, {
-        method: 'POST',
-        headers: {
-          'Authorization': config.authToken,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model_id: model.id,
-        }),
-      });
+      const response = await fetch(
+        `${config.adsPowerUrl}/api/v1/browser/stop?user_id=${status.profileId}`
+      );
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || response.statusText);
+      const data = await response.json();
+
+      if (data.code === 0) {
+        onLog(`✅ Browser stopped for ${model.name}!`);
+        setStatus({ ...status, browserRunning: false });
+      } else {
+        onLog(`❌ Failed to stop browser: ${data.msg}`);
       }
-
-      onLog(`✅ Automation stopped for ${model.name}`);
-
-      setStatus({
-        ...status,
-        browserRunning: false,
-        automationEnabled: false,
-      });
     } catch (error: any) {
-      onLog(`❌ Error stopping automation for ${model.name}: ${error.message}`);
+      onLog(`❌ Error stopping browser for ${model.name}: ${error.message}`);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const checkStatus = async () => {
-    try {
-      onLog(`📊 Checking status for ${model.name}...`);
-
-      const response = await fetch(`${config.backendUrl}/automation/status/${model.id}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': config.authToken,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(response.statusText);
-      }
-
-      const result = await response.json();
-      const data = result.data;
-
-      setStatus({
-        profileId: data.profile_id || status.profileId,
-        browserRunning: data.browser_status === 'running',
-        automationEnabled: data.automation_enabled || false,
-      });
-
-      onLog(`✅ Status for ${model.name}:`);
-      onLog(`   Browser: ${data.browser_status || 'stopped'}`);
-      onLog(`   Automation: ${data.automation_enabled ? 'enabled' : 'disabled'}`);
-      onLog(`   Active Tabs: ${data.active_tabs?.length || 0}`);
-    } catch (error: any) {
-      onLog(`❌ Error checking status for ${model.name}: ${error.message}`);
     }
   };
 
@@ -205,65 +204,42 @@ function ModelCard({ model, config, onLog }: ModelCardProps) {
             {status.browserRunning ? '🟢 Running' : '🔴 Stopped'}
           </span>
         </div>
-        <div>
-          <strong>Automation:</strong>{' '}
-          <span style={{ color: status.automationEnabled ? '#28a745' : '#666' }}>
-            {status.automationEnabled ? '✅ Enabled' : '⏸️ Disabled'}
-          </span>
-        </div>
       </div>
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <button
           onClick={startAutomation}
-          disabled={loading || status.automationEnabled}
+          disabled={loading || status.browserRunning}
           style={{
-            padding: '10px 20px',
-            backgroundColor: status.automationEnabled ? '#6c757d' : '#28a745',
+            padding: '12px 32px',
+            backgroundColor: status.browserRunning ? '#6c757d' : '#28a745',
             color: 'white',
             border: 'none',
-            borderRadius: '6px',
-            cursor: loading || status.automationEnabled ? 'not-allowed' : 'pointer',
+            borderRadius: '8px',
+            cursor: loading || status.browserRunning ? 'not-allowed' : 'pointer',
             fontWeight: 'bold',
-            fontSize: '14px',
+            fontSize: '16px',
           }}
         >
-          {loading ? '⏳ Loading...' : status.automationEnabled ? '✅ Running' : '🚀 Start Automation'}
+          {loading ? '⏳ Starting...' : status.browserRunning ? '✅ Running' : '🚀 Start Automation'}
         </button>
 
         <button
-          onClick={stopAutomation}
-          disabled={loading || !status.automationEnabled}
+          onClick={stopBrowser}
+          disabled={loading || !status.browserRunning}
           style={{
-            padding: '10px 20px',
-            backgroundColor: !status.automationEnabled ? '#6c757d' : '#dc3545',
+            padding: '12px 32px',
+            backgroundColor: !status.browserRunning ? '#6c757d' : '#dc3545',
             color: 'white',
             border: 'none',
-            borderRadius: '6px',
-            cursor: loading || !status.automationEnabled ? 'not-allowed' : 'pointer',
+            borderRadius: '8px',
+            cursor: loading || !status.browserRunning ? 'not-allowed' : 'pointer',
             fontWeight: 'bold',
-            fontSize: '14px',
+            fontSize: '16px',
           }}
         >
-          {loading ? '⏳ Loading...' : '🛑 Stop Automation'}
-        </button>
-
-        <button
-          onClick={checkStatus}
-          disabled={loading}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontWeight: 'bold',
-            fontSize: '14px',
-          }}
-        >
-          📊 Check Status
+          {loading ? '⏳ Stopping...' : '🛑 Stop'}
         </button>
       </div>
     </div>
@@ -316,7 +292,7 @@ export default function AdsPowerTest() {
       }
 
       const result = await response.json();
-      const modelsData = result.data || [];
+      const modelsData = result.data?.data || [];
 
       setModels(modelsData);
       addLog(`✅ Loaded ${modelsData.length} model(s)`);
@@ -345,7 +321,7 @@ export default function AdsPowerTest() {
     <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
       <h1 style={{ marginBottom: '8px' }}>WingMan AdsPower Automation Manager</h1>
       <p style={{ color: '#666', marginBottom: '24px' }}>
-        Production-ready multi-model automation control
+        Client-side multi-model automation control
       </p>
 
       {/* Configuration Section */}
@@ -484,6 +460,9 @@ export default function AdsPowerTest() {
           <h2 style={{ fontSize: '18px', marginBottom: '16px' }}>
             🤖 Models ({models.length})
           </h2>
+          <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+            ⚠️ Make sure AdsPower is running on <strong>{config.adsPowerUrl}</strong> before starting automation
+          </p>
           {models.map((model) => (
             <ModelCard key={model.id} model={model} config={config} onLog={addLog} />
           ))}
